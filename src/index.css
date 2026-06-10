@@ -1,0 +1,31 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* Custom Scrollbar for Kitchen Dashboard elements */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #E6DCBF;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #D3C5A3;
+}
+
+/* Safe touch interactions on tablets */
+button, select, input {
+  touch-action: manipulation;
+}

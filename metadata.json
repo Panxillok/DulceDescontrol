@@ -1,0 +1,6 @@
+{
+  "name": "Dashboard de Pastelería",
+  "description": "Dashboard Administrativo y de Logística optimizado para tabletas de cocina en repostería",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
