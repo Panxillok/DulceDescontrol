@@ -13,6 +13,7 @@ import InventoryModule from './components/InventoryModule';
 import AddOrderModal from './components/AddOrderModal';
 import ProductsModule from './components/ProductsModule';
 import OrderDetailModal from './components/OrderDetailModal';
+import ExpensesModule from './components/ExpensesModule';
 import { 
   ChefHat, 
   Search, 
@@ -30,7 +31,8 @@ import {
   ChevronRight,
   AlertOctagon,
   ChevronDown,
-  Tag
+  Tag,
+  Receipt
 } from 'lucide-react';
 
 // A. COLLAPSIBLE ACCORDION FOR WEAKLY INGREDIENT INVENTORIES
@@ -104,7 +106,7 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isQuickOrderOpen, setIsQuickOrderOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'pedidos' | 'inventario' | 'productos'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'pedidos' | 'inventario' | 'productos' | 'gastos'>('dashboard');
   const [dashboardStatus, setDashboardStatus] = useState<'semanal' | 'mensual'>('semanal');
   const [showAlert, setShowAlert] = useState(true);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -139,7 +141,7 @@ export default function App() {
   }, []);
 
   // PRODUCT HANDLERS FOR PRODUCTS CATALOG MODULE
-  const handleAddProduct = async (name: string, price: number): Promise<void> => {
+  const handleAddProduct = async (name: string, price: number, recipeIngredients?: { ingredientName: string; amount: number }[]): Promise<void> => {
     const res = await fetch('/api/products', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -148,9 +150,25 @@ export default function App() {
     if (!res.ok) throw new Error('Error al agregar producto');
     const newProd = await res.json();
     setProducts(prev => [...prev, newProd]);
+
+    if (recipeIngredients && recipeIngredients.length > 0) {
+      const recRes = await fetch('/api/recipes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name,
+          activeThisWeek: true,
+          requiredIngredients: recipeIngredients
+        })
+      });
+      if (recRes.ok) {
+        const newRecipe = await recRes.json();
+        setRecipes(prev => [...prev, newRecipe]);
+      }
+    }
   };
 
-  const handleUpdateProduct = async (id: string, name: string, price: number): Promise<void> => {
+  const handleUpdateProduct = async (id: string, name: string, price: number, recipeIngredients?: { ingredientName: string; amount: number }[]): Promise<void> => {
     const res = await fetch(`/api/products/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -158,6 +176,56 @@ export default function App() {
     });
     if (!res.ok) throw new Error('Error al actualizar producto');
     setProducts(prev => prev.map(p => p.id === id ? { ...p, name, price } : p));
+
+    if (recipeIngredients) {
+      const recRes = await fetch('/api/recipes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name,
+          activeThisWeek: true,
+          requiredIngredients: recipeIngredients
+        })
+      });
+      if (recRes.ok) {
+        const newRecipe = await recRes.json();
+        setRecipes(prev => {
+          const exists = prev.some(r => r.name.toLowerCase() === name.toLowerCase());
+          if (exists) {
+            return prev.map(r => r.name.toLowerCase() === name.toLowerCase() ? newRecipe : r);
+          } else {
+            return [...prev, newRecipe];
+          }
+        });
+      }
+    }
+  };
+
+  const handleAddIngredient = async (name: string, initialStock: number, criticalLimit: number, unit: string, category: string): Promise<void> => {
+    const res = await fetch('/api/ingredients', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, currentStock: initialStock, criticalLimit, unit, category })
+    });
+    if (!res.ok) throw new Error('Error al agregar ingrediente');
+    const newIng = await res.json();
+    setIngredients(prev => [...prev, newIng]);
+  };
+
+  const handleDeleteIngredient = async (id: string): Promise<void> => {
+    const res = await fetch(`/api/ingredients/${id}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Error al eliminar ingrediente');
+    setIngredients(prev => prev.filter(i => i.id !== id));
+  };
+
+  const handleDeleteOrder = async (id: string): Promise<void> => {
+    const res = await fetch(`/api/orders/${id}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Error al eliminar pedido');
+    setOrders(prev => prev.filter(o => o.id !== id));
   };
 
   const handleDeleteProduct = async (id: string): Promise<void> => {
@@ -189,6 +257,57 @@ export default function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus })
     }).catch(err => console.error('Error synchronizing status API:', err));
+  };
+
+  const handleUpdateOrderPayment = (
+    orderId: string,
+    paymentMethod: string,
+    amountPaid: number,
+    paymentEfectivo: number,
+    paymentTransferencia: number,
+    paymentTarjeta: number
+  ) => {
+    // Optimistic UI update
+    setOrders(prevOrders => 
+      prevOrders.map(order => 
+        order.id === orderId 
+          ? { 
+              ...order, 
+              paymentMethod, 
+              amountPaid, 
+              paymentEfectivo, 
+              paymentTransferencia, 
+              paymentTarjeta 
+            } 
+          : order
+      )
+    );
+
+    // Update active modal details
+    setSelectedOrder(prev => 
+      prev && prev.id === orderId 
+        ? { 
+            ...prev, 
+            paymentMethod, 
+            amountPaid, 
+            paymentEfectivo, 
+            paymentTransferencia, 
+            paymentTarjeta 
+          } 
+        : prev
+    );
+
+    fetch(`/api/orders/${orderId}/payment`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        paymentMethod,
+        amountPaid,
+        paymentEfectivo,
+        paymentTransferencia,
+        paymentTarjeta
+      })
+    }).catch(err => console.error('Error synchronizing payment API:', err));
   };
 
   const handleAddOrder = (newOrderData: Omit<Order, 'id'>) => {
@@ -500,6 +619,28 @@ export default function App() {
                 </>
               )}
             </button>
+
+            <button
+              onClick={() => setActiveTab('gastos')}
+              title={isSidebarCollapsed ? "Registro de Egresos" : undefined}
+              className={`w-full flex items-center gap-3 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+                isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'
+              } ${
+                activeTab === 'gastos'
+                  ? 'bg-[#EAFEEA] border-l-4 border-l-[#00652c] text-[#00652c] font-extrabold'
+                  : 'text-[#73624E] hover:bg-[#FAF6EE] hover:text-[#2C2114]'
+              }`}
+            >
+              <Receipt className="w-5 h-5 shrink-0" />
+              {!isSidebarCollapsed && (
+                <>
+                  <span>Registro de Egresos</span>
+                  <span className="ml-auto bg-rose-100 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded-full font-mono">
+                    {expenses.length}
+                  </span>
+                </>
+              )}
+            </button>
           </nav>
         </div>
 
@@ -725,8 +866,6 @@ export default function App() {
                     <FinancialModule 
                       orders={orders}
                       expenses={expenses}
-                      onAddExpense={handleAddExpense}
-                      onDeleteExpense={handleDeleteExpense}
                     />
                   </div>
                 )}
@@ -773,6 +912,8 @@ export default function App() {
                   onUpdateStock={handleUpdateStock}
                   onRestock={handleRestockIngredient}
                   onToggleRecipeActive={handleToggleRecipeActive}
+                  onAddIngredient={handleAddIngredient}
+                  onDeleteIngredient={handleDeleteIngredient}
                 />
               </div>
             )}
@@ -787,9 +928,29 @@ export default function App() {
 
                 <ProductsModule
                   products={products}
+                  ingredients={ingredients}
+                  recipes={recipes}
                   onAddProduct={handleAddProduct}
                   onUpdateProduct={handleUpdateProduct}
                   onDeleteProduct={handleDeleteProduct}
+                />
+              </div>
+            )}
+
+            {/* TAB 5: REGISTRO DE EGRESOS Y GASTOS */}
+            {activeTab === 'gastos' && (
+              <div className="bg-[#FDFBF7] rounded-3xl border border-[#EADEC9] p-6 space-y-6 shadow-xs">
+                <div className="border-[#EADEC9] border-b pb-4">
+                  <h3 className="font-sans font-black text-[#2C2114] text-lg">Registro de Egresos y Gastos Administrativos</h3>
+                  <p className="text-[#73624E] text-xs mt-0.5">Gestión contable de compras de insumos, servicios, pago de proveedores e IVA crédito fiscal para el S.I.I.</p>
+                </div>
+
+                <ExpensesModule
+                  expenses={expenses}
+                  ingredients={ingredients}
+                  onAddExpense={handleAddExpense}
+                  onDeleteExpense={handleDeleteExpense}
+                  onUpdateIngredientStock={handleUpdateStock}
                 />
               </div>
             )}
@@ -812,6 +973,8 @@ export default function App() {
         onClose={() => setSelectedOrder(null)}
         order={selectedOrder}
         onUpdateStatus={handleUpdateOrderStatus}
+        onUpdatePayment={handleUpdateOrderPayment}
+        onDeleteOrder={handleDeleteOrder}
       />
 
     </div>

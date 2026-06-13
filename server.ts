@@ -165,14 +165,49 @@ async function bootstrapPostgreSQL() {
       await pgPool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS ingredients_deducted BOOLEAN NOT NULL DEFAULT false`);
     } catch (_) {}
 
+    try {
+      await pgPool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50)`);
+    } catch (_) {}
+
+    try {
+      await pgPool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS amount_paid NUMERIC(15,2)`);
+    } catch (_) {}
+
+    try {
+      await pgPool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_efectivo NUMERIC(15,2)`);
+    } catch (_) {}
+
+    try {
+      await pgPool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_transferencia NUMERIC(15,2)`);
+    } catch (_) {}
+
+    try {
+      await pgPool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_tarjeta NUMERIC(15,2)`);
+    } catch (_) {}
+
     // Bootstrap Orders
     const ordersCount = await pgPool.query(`SELECT COUNT(*) FROM orders`);
     if (parseInt(ordersCount.rows[0].count, 10) === 0) {
       console.log('Inserting orders seed into PostgreSQL...');
       for (const o of dbCache.orders) {
         await pgPool.query(
-          `INSERT INTO orders (id, client_name, product_name, delivery_date, delivery_time, status, total, delivery_address, delivery_fee, ingredients_deducted) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-          [o.id, o.clientName, o.productName, o.deliveryDate, o.deliveryTime, o.status, o.total, o.deliveryAddress, o.deliveryFee, o.ingredientsDeducted || false]
+          `INSERT INTO orders (id, client_name, product_name, delivery_date, delivery_time, status, total, delivery_address, delivery_fee, ingredients_deducted, payment_method, amount_paid, payment_efectivo, payment_transferencia, payment_tarjeta) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+          [
+            o.id, 
+            o.clientName, 
+            o.productName, 
+            o.deliveryDate, 
+            o.deliveryTime, 
+            o.status, 
+            o.total, 
+            o.deliveryAddress, 
+            o.deliveryFee, 
+            o.ingredientsDeducted || false, o.paymentMethod || 'Efectivo',
+            o.amountPaid != null ? o.amountPaid : null,
+            o.paymentEfectivo != null ? o.paymentEfectivo : null,
+            o.paymentTransferencia != null ? o.paymentTransferencia : null,
+            o.paymentTarjeta != null ? o.paymentTarjeta : null
+          ]
         );
       }
     }
@@ -246,7 +281,12 @@ async function getOrders() {
       total: parseFloat(r.total),
       deliveryAddress: r.delivery_address || undefined,
       deliveryFee: r.delivery_fee ? parseFloat(r.delivery_fee) : 0,
-      ingredientsDeducted: r.ingredients_deducted
+      ingredientsDeducted: r.ingredients_deducted,
+      paymentMethod: r.payment_method || 'Efectivo',
+      amountPaid: r.amount_paid != null ? parseFloat(r.amount_paid) : undefined,
+      paymentEfectivo: r.payment_efectivo != null ? parseFloat(r.payment_efectivo) : undefined,
+      paymentTransferencia: r.payment_transferencia != null ? parseFloat(r.payment_transferencia) : undefined,
+      paymentTarjeta: r.payment_tarjeta != null ? parseFloat(r.payment_tarjeta) : undefined,
     }));
   }
   return dbCache.orders;
@@ -255,8 +295,24 @@ async function getOrders() {
 async function saveOrder(o: any) {
   if (pgPool) {
     await pgPool.query(
-      `INSERT INTO orders (id, client_name, product_name, delivery_date, delivery_time, status, total, delivery_address, delivery_fee, ingredients_deducted) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [o.id, o.clientName, o.productName, o.deliveryDate, o.deliveryTime, o.status, o.total, o.deliveryAddress, o.deliveryFee, o.ingredientsDeducted || false]
+      `INSERT INTO orders (id, client_name, product_name, delivery_date, delivery_time, status, total, delivery_address, delivery_fee, ingredients_deducted, payment_method, amount_paid, payment_efectivo, payment_transferencia, payment_tarjeta) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+      [
+        o.id, 
+        o.clientName, 
+        o.productName, 
+        o.deliveryDate, 
+        o.deliveryTime, 
+        o.status, 
+        o.total, 
+        o.deliveryAddress, 
+        o.deliveryFee, 
+        o.ingredientsDeducted || false, 
+        o.paymentMethod || 'Efectivo',
+        o.amountPaid != null ? o.amountPaid : null,
+        o.paymentEfectivo != null ? o.paymentEfectivo : null,
+        o.paymentTransferencia != null ? o.paymentTransferencia : null,
+        o.paymentTarjeta != null ? o.paymentTarjeta : null
+      ]
     );
   }
   dbCache.orders.push(o);
@@ -338,6 +394,17 @@ async function updateIngredientStock(id: string, stock: number, status: string) 
   saveLocal();
 }
 
+async function saveIngredient(i: any) {
+  if (pgPool) {
+    await pgPool.query(
+      `INSERT INTO ingredients (id, name, current_stock, critical_limit, unit, weekly_required, category, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [i.id, i.name, i.current_stock || i.currentStock, i.critical_limit || i.criticalLimit, i.unit, i.weekly_required || i.weeklyRequired, i.category, i.status]
+    );
+  }
+  dbCache.ingredients.push(i);
+  saveLocal();
+}
+
 async function getRecipes() {
   if (pgPool) {
     const res = await pgPool.query(`SELECT * FROM recipes ORDER BY name ASC`);
@@ -357,6 +424,40 @@ async function toggleRecipeActive(id: string, active: boolean) {
   }
   dbCache.recipes = dbCache.recipes.map(r => r.id === id ? { ...r, activeThisWeek: active } : r);
   saveLocal();
+}
+
+async function saveRecipe(r: any) {
+  if (pgPool) {
+    const exists = await pgPool.query(`SELECT id FROM recipes WHERE LOWER(name) = LOWER($1)`, [r.name]);
+    if (exists.rows.length > 0) {
+      await pgPool.query(
+        `UPDATE recipes SET active_this_week = $1, required_ingredients = $2 WHERE id = $3`,
+        [r.activeThisWeek, JSON.stringify(r.requiredIngredients), exists.rows[0].id]
+      );
+      dbCache.recipes = dbCache.recipes.map(recipe => recipe.name.toLowerCase() === r.name.toLowerCase() ? { ...recipe, activeThisWeek: r.activeThisWeek, requiredIngredients: r.requiredIngredients } : recipe);
+      saveLocal();
+      return { id: exists.rows[0].id, name: r.name, activeThisWeek: r.activeThisWeek, requiredIngredients: r.requiredIngredients };
+    } else {
+      await pgPool.query(
+        `INSERT INTO recipes (id, name, active_this_week, required_ingredients) VALUES ($1, $2, $3, $4)`,
+        [r.id, r.name, r.activeThisWeek, JSON.stringify(r.requiredIngredients)]
+      );
+    }
+  } else {
+    const matchedIdx = dbCache.recipes.findIndex(recipe => recipe.name.toLowerCase() === r.name.toLowerCase());
+    if (matchedIdx >= 0) {
+      dbCache.recipes[matchedIdx] = { 
+        ...dbCache.recipes[matchedIdx], 
+        activeThisWeek: r.activeThisWeek, 
+        requiredIngredients: r.requiredIngredients 
+      };
+      saveLocal();
+      return dbCache.recipes[matchedIdx];
+    }
+  }
+  dbCache.recipes.push(r);
+  saveLocal();
+  return r;
 }
 
 async function getExpenses() {
@@ -416,7 +517,7 @@ async function resetDatabase() {
   }
 }
 
-// Automatically deduct ingredient stock when order is sent to baking/oven
+// Automatically deduct ingredient stock when order is sent to baking/oven, supports multiple parsed items
 async function deductIngredientsForOrder(orderId: string) {
   try {
     const orders = await getOrders();
@@ -424,44 +525,77 @@ async function deductIngredientsForOrder(orderId: string) {
     if (!order || order.ingredientsDeducted) return;
 
     const recipes = await getRecipes();
-    // Match by substring search
-    let matchedRecipe = recipes.find(r => 
-      order.productName.toLowerCase().includes(r.name.toLowerCase().split(' ')[0]) ||
-      r.name.toLowerCase().includes(order.productName.toLowerCase().split(' ')[0])
-    );
+    const ingredients = await getIngredients();
+    
+    // Parse individual items split by commas
+    const items = order.productName.split(',');
+    let anyDeducted = false;
 
-    // Fallbacks
-    if (!matchedRecipe) {
-      if (order.productName.toLowerCase().includes('bodas') || order.productName.toLowerCase().includes('pastel')) {
-        matchedRecipe = recipes.find(r => r.id === 'REC-01');
-      } else if (order.productName.toLowerCase().includes('croiss')) {
-        matchedRecipe = recipes.find(r => r.id === 'REC-02');
-      } else if (order.productName.toLowerCase().includes('fresa') || order.productName.toLowerCase().includes('tarta')) {
-        matchedRecipe = recipes.find(r => r.id === 'REC-03');
-      } else if (order.productName.toLowerCase().includes('pan') || order.productName.toLowerCase().includes('baguet') || order.productName.toLowerCase().includes('madre')) {
-        matchedRecipe = recipes.find(r => r.id === 'REC-04');
+    // Track deductions to apply consistently
+    const ingredientUpdates: { [id: string]: { newStock: number, status: 'Crítico' | 'Agotándose' | 'Suficiente' } } = {};
+
+    for (const rawItem of items) {
+      const item = rawItem.trim();
+      if (!item) continue;
+
+      // Extract quantity from descriptor (e.g. "2x Tarta de Fresas" or "Tarta de Fresas (x2)" or "Lote (x40)")
+      let qty = 1;
+      const xMatch = item.match(/^(\d+)\s*x/i) || item.match(/x\s*(\d+)/i) || item.match(/\(\s*x\s*(\d+)\s*\)/i);
+      if (xMatch) {
+        qty = parseInt(xMatch[1], 10);
       }
-    }
 
-    if (matchedRecipe) {
-      console.log(`[INVENTORY AUTOMATION] Deducting recipe ingredients for "${order.productName}" using recipe: "${matchedRecipe.name}"`);
-      const ingredients = await getIngredients();
+      // Try substring match on clean descriptor
+      const cleanName = item.replace(/^\d+\s*x\s*/i, '').replace(/\s*\(x\d+\)/i, '').trim().toLowerCase();
       
-      for (const req of matchedRecipe.requiredIngredients) {
-        const ing = ingredients.find(i => i.name.toLowerCase() === req.ingredientName.toLowerCase());
-        if (ing) {
-          const newStock = Math.max(0, ing.currentStock - req.amount);
-          let status: 'Crítico' | 'Agotándose' | 'Suficiente' = 'Suficiente';
-          if (newStock < ing.criticalLimit * 0.4) {
-            status = 'Crítico';
-          } else if (newStock < ing.criticalLimit) {
-            status = 'Agotándose';
-          }
-          await updateIngredientStock(ing.id, newStock, status);
+      let matchedRecipe = recipes.find(r => 
+        cleanName.includes(r.name.toLowerCase().split(' ')[0]) || 
+        r.name.toLowerCase().includes(cleanName.split(' ')[0])
+      );
+
+      // Fallbacks
+      if (!matchedRecipe) {
+        if (cleanName.includes('bodas') || cleanName.includes('pastel')) {
+          matchedRecipe = recipes.find(r => r.id === 'REC-01');
+        } else if (cleanName.includes('croiss')) {
+          matchedRecipe = recipes.find(r => r.id === 'REC-02');
+        } else if (cleanName.includes('fresa') || cleanName.includes('tarta')) {
+          matchedRecipe = recipes.find(r => r.id === 'REC-03');
+        } else if (cleanName.includes('pan') || cleanName.includes('baguet') || cleanName.includes('madre')) {
+          matchedRecipe = recipes.find(r => r.id === 'REC-04');
         }
       }
 
-      // Mark order as ingredients deducted in Postgres and Local Cache
+      if (matchedRecipe) {
+        anyDeducted = true;
+        console.log(`[INVENTORY AUTOMATION] Deducting ingredients for: "${cleanName}" qty ${qty} (split item)`);
+        
+        for (const req of matchedRecipe.requiredIngredients) {
+          const ing = ingredients.find(i => i.name.toLowerCase() === req.ingredientName.toLowerCase());
+          if (ing) {
+            const currentStock = ingredientUpdates[ing.id] ? ingredientUpdates[ing.id].newStock : ing.currentStock;
+            const deductionAmount = req.amount * qty;
+            const newStock = Math.max(0, currentStock - deductionAmount);
+            
+            let status: 'Crítico' | 'Agotándose' | 'Suficiente' = 'Suficiente';
+            if (newStock < ing.criticalLimit * 0.4) {
+              status = 'Crítico';
+            } else if (newStock < ing.criticalLimit) {
+              status = 'Agotándose';
+            }
+            
+            ingredientUpdates[ing.id] = { newStock, status };
+          }
+        }
+      }
+    }
+
+    // Apply accumulated stock updates
+    for (const [id, val] of Object.entries(ingredientUpdates)) {
+      await updateIngredientStock(id, val.newStock, val.status);
+    }
+
+    if (anyDeducted) {
       if (pgPool) {
         await pgPool.query(`UPDATE orders SET ingredients_deducted = true WHERE id = $1`, [orderId]);
       }
@@ -526,6 +660,51 @@ async function startServer() {
     }
   });
 
+  app.put('/api/orders/:id/payment', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { paymentMethod, amountPaid, paymentEfectivo, paymentTransferencia, paymentTarjeta } = req.body;
+      
+      const pPaid = parseFloat(amountPaid) || 0;
+      const pEf = parseFloat(paymentEfectivo) || 0;
+      const pTrans = parseFloat(paymentTransferencia) || 0;
+      const pTar = parseFloat(paymentTarjeta) || 0;
+
+      if (pgPool) {
+        await pgPool.query(
+          `UPDATE orders SET payment_method = $1, amount_paid = $2, payment_efectivo = $3, payment_transferencia = $4, payment_tarjeta = $5 WHERE id = $6`,
+          [paymentMethod, pPaid, pEf, pTrans, pTar, id]
+        );
+      }
+      dbCache.orders = dbCache.orders.map(o => o.id === id ? { 
+        ...o, 
+        paymentMethod, 
+        amountPaid: pPaid, 
+        paymentEfectivo: pEf, 
+        paymentTransferencia: pTrans, 
+        paymentTarjeta: pTar 
+      } : o);
+      saveLocal();
+      res.json({ success: true, paymentMethod, amountPaid: pPaid, paymentEfectivo: pEf, paymentTransferencia: pTrans, paymentTarjeta: pTar });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/orders/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (pgPool) {
+        await pgPool.query(`DELETE FROM orders WHERE id = $1`, [id]);
+      }
+      dbCache.orders = dbCache.orders.filter(o => o.id !== id);
+      saveLocal();
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // REST API endpoints for Products
   app.get('/api/products', async (req, res) => {
     try {
@@ -576,6 +755,39 @@ async function startServer() {
     }
   });
 
+  app.post('/api/ingredients', async (req, res) => {
+    try {
+      const { name, currentStock, criticalLimit, unit, category } = req.body;
+      const id = `ING-${Math.floor(10 + Math.random() * 90)}`;
+      
+      const criticalLimitNum = Number(criticalLimit) || 0;
+      const currentStockNum = Number(currentStock) || 0;
+      
+      let status: 'Crítico' | 'Agotándose' | 'Suficiente' = 'Suficiente';
+      if (currentStockNum < criticalLimitNum * 0.4) {
+        status = 'Crítico';
+      } else if (currentStockNum < criticalLimitNum) {
+        status = 'Agotándose';
+      }
+
+      const newIngredient = {
+        id,
+        name,
+        currentStock: currentStockNum,
+        criticalLimit: criticalLimitNum,
+        unit,
+        weeklyRequired: criticalLimitNum * 2,
+        category,
+        status
+      };
+
+      await saveIngredient(newIngredient);
+      res.json(newIngredient);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.put('/api/ingredients/:id/stock', async (req, res) => {
     try {
       const { id } = req.params;
@@ -587,9 +799,35 @@ async function startServer() {
     }
   });
 
+  app.delete('/api/ingredients/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (pgPool) {
+        await pgPool.query(`DELETE FROM ingredients WHERE id = $1`, [id]);
+      }
+      dbCache.ingredients = dbCache.ingredients.filter(i => i.id !== id);
+      saveLocal();
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/recipes', async (req, res) => {
     try {
       res.json(await getRecipes());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/recipes', async (req, res) => {
+    try {
+      const { name, activeThisWeek, requiredIngredients } = req.body;
+      const id = `REC-${Math.floor(100 + Math.random() * 900)}`;
+      const newRecipe = { id, name, activeThisWeek: activeThisWeek !== false, requiredIngredients };
+      await saveRecipe(newRecipe);
+      res.json(newRecipe);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

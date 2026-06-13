@@ -11,6 +11,11 @@ export interface Order {
   deliveryAddress?: string;
   deliveryFee?: number;
   ingredientsDeducted?: boolean;
+  paymentMethod?: 'Efectivo' | 'Transferencia' | 'Tarjeta' | 'Parcial';
+  amountPaid?: number;
+  paymentEfectivo?: number;
+  paymentTransferencia?: number;
+  paymentTarjeta?: number;
 }
 
 export interface Product {
@@ -26,6 +31,10 @@ export interface Expense {
   date: string; // ISO string
   type: 'Boleta' | 'Factura' | 'Insumo' | 'Servicios' | 'Otros';
   documentNumber?: string; // Boleta / Factura number
+  category?: 'Insumos' | 'Servicios' | 'Maquinaria' | 'Otros';
+  quantity?: number;
+  unit?: string;
+  ingredientId?: string;
 }
 
 export interface Ingredient {

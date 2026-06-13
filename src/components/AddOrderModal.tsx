@@ -1,6 +1,19 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Calendar, Clock, DollarSign, User, ClipboardList, Sparkles, MapPin } from 'lucide-react';
+import { 
+  X, 
+  Calendar, 
+  Clock, 
+  DollarSign, 
+  User, 
+  ClipboardList, 
+  Sparkles, 
+  MapPin, 
+  Plus, 
+  Minus, 
+  ShoppingCart, 
+  Trash2 
+} from 'lucide-react';
 import { Order, OrderStatus, Product } from '../types';
 import { getRelativeDateString } from '../data';
 
@@ -17,36 +30,95 @@ const DELIVERY_ZONES = [
   { name: 'Las Condes / Vitacura', fee: 6000 },
   { name: 'La Reina / Ñuñoa / Italia', fee: 5000 },
   { name: 'Maipú / Cerrillos / Pudahuel', fee: 8000 },
-  { name: 'Lo Barnechea / Chicureo', fee: 10000 }
+  { name: 'Lo Barnechea / Chicureo', fee: 10000 },
+  { name: 'Personalizado (Ingreso manual)', fee: 0 }
 ];
 
 export default function AddOrderModal({ isOpen, onClose, onAddOrder, products }: AddOrderModalProps) {
   const [clientName, setClientName] = useState('');
+  
+  // Multiple products basket
+  const [basket, setBasket] = useState<{ product: Product; quantity: number }[]>([]);
+  
+  // Real time synthesized values
   const [productName, setProductName] = useState('');
-  const [price, setPrice] = useState('25000');
+  const [price, setPrice] = useState('0');
+  
   const [deliveryTime, setDeliveryTime] = useState('11:00');
   const [deliveryDate, setDeliveryDate] = useState(getRelativeDateString(0)); // today default
   const [status, setStatus] = useState<OrderStatus>('Confirmado');
   const [deliveryZone, setDeliveryZone] = useState('Retiro en local');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryFee, setDeliveryFee] = useState(0);
+  const [paymentMethod, setPaymentMethod] = useState<'Efectivo' | 'Transferencia' | 'Tarjeta' | 'Parcial'>('Efectivo');
 
-  // Set default product selected name and price on modal list refresh
+  // Split payment amounts
+  const [payEfectivo, setPayEfectivo] = useState<number>(0);
+  const [payTransferencia, setPayTransferencia] = useState<number>(0);
+  const [payTarjeta, setPayTarjeta] = useState<number>(0);
+
+  // Synchronize basket changes to synthesized string name and calculated price
   useEffect(() => {
-    if (products && products.length > 0 && !productName) {
-      setProductName(products[0].name);
-      setPrice(products[0].price.toString());
+    if (basket.length > 0) {
+      const orderSummary = basket.map(item => `${item.quantity}x ${item.product.name}`).join(', ');
+      const computedTotal = basket.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+      setProductName(orderSummary);
+      setPrice(computedTotal.toString());
+    } else {
+      setProductName('');
+      setPrice('0');
     }
-  }, [products]);
+  }, [basket]);
 
-  const handleSelectPreset = (name: string, defaultPrice: number) => {
-    setProductName(name);
-    setPrice(Math.round(defaultPrice).toString());
+  const handleAddProductToBasket = (prod: Product) => {
+    setBasket(prev => {
+      const existing = prev.find(item => item.product.id === prod.id);
+      if (existing) {
+        return prev.map(item => item.product.id === prod.id ? { ...item, quantity: item.quantity + 1 } : item);
+      } else {
+        return [...prev, { product: prod, quantity: 1 }];
+      }
+    });
+  };
+
+  const handleUpdateQuantity = (prodId: string, delta: number) => {
+    setBasket(prev => {
+      return prev.map(item => {
+        if (item.product.id === prodId) {
+          const newQty = Math.max(1, item.quantity + delta);
+          return { ...item, quantity: newQty };
+        }
+        return item;
+      });
+    });
+  };
+
+  const handleRemoveFromBasket = (prodId: string) => {
+    setBasket(prev => prev.filter(item => item.product.id !== prodId));
   };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!clientName.trim() || !productName.trim() || isNaN(Number(price))) return;
+
+    const orderGrandTotal = Number(price) + Number(deliveryFee);
+    let finalAmountPaid = orderGrandTotal;
+    let finalEfectivo = 0;
+    let finalTransferencia = 0;
+    let finalTarjeta = 0;
+
+    if (paymentMethod === 'Efectivo') {
+      finalEfectivo = orderGrandTotal;
+    } else if (paymentMethod === 'Transferencia') {
+      finalTransferencia = orderGrandTotal;
+    } else if (paymentMethod === 'Tarjeta') {
+      finalTarjeta = orderGrandTotal;
+    } else if (paymentMethod === 'Parcial') {
+      finalAmountPaid = payEfectivo + payTransferencia + payTarjeta;
+      finalEfectivo = payEfectivo;
+      finalTransferencia = payTransferencia;
+      finalTarjeta = payTarjeta;
+    }
 
     onAddOrder({
       clientName: clientName.trim(),
@@ -56,19 +128,29 @@ export default function AddOrderModal({ isOpen, onClose, onAddOrder, products }:
       deliveryDate,
       status,
       deliveryAddress: deliveryZone === 'Retiro en local' ? 'Retiro en local' : deliveryAddress.trim(),
-      deliveryFee: deliveryFee
+      deliveryFee: deliveryFee,
+      paymentMethod,
+      amountPaid: finalAmountPaid,
+      paymentEfectivo: finalEfectivo,
+      paymentTransferencia: finalTransferencia,
+      paymentTarjeta: finalTarjeta
     });
 
     // Reset fields
     setClientName('');
-    setProductName(products.length > 0 ? products[0].name : '');
-    setPrice(products.length > 0 ? products[0].price.toString() : '25000');
+    setBasket([]);
+    setProductName('');
+    setPrice('0');
     setDeliveryTime('11:00');
     setDeliveryDate(getRelativeDateString(0));
     setStatus('Confirmado');
     setDeliveryZone('Retiro en local');
     setDeliveryAddress('');
     setDeliveryFee(0);
+    setPaymentMethod('Efectivo');
+    setPayEfectivo(0);
+    setPayTransferencia(0);
+    setPayTarjeta(0);
     onClose();
   };
 
@@ -101,11 +183,11 @@ export default function AddOrderModal({ isOpen, onClose, onAddOrder, products }:
             <div className="bg-[#FAF6EE] border-b border-[#EADEC9] p-5 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-2">
                 <div className="p-2 bg-[#EAFEEA] rounded-lg text-[#00652c] border border-[#BFF6C3]">
-                  <ClipboardList className="w-5 h-5" />
+                  <ShoppingCart className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold font-sans text-[#2C2114]">Ingresar Nuevo Pedido</h3>
-                  <p className="text-xs text-[#73624E]">Completa el formulario para agendar en logística y producción</p>
+                  <p className="text-xs text-[#73624E]">Crea un pedido con uno o más productos del catálogo pastelero</p>
                 </div>
               </div>
               <button
@@ -117,69 +199,124 @@ export default function AddOrderModal({ isOpen, onClose, onAddOrder, products }:
             </div>
 
             {/* Scrollable Form Body */}
-            <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6 flex-1 text-left">
-              {/* Client and Product */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-[#2C2114] uppercase tracking-wider flex items-center gap-1">
-                    <User className="w-3.5 h-3.5 text-[#00652c]" /> Nombre del Cliente
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej. María de la Luz"
-                    value={clientName}
-                    onChange={(e) => setClientName(e.target.value)}
-                    className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3.5 py-2.5 text-sm text-[#2C2114] focus:border-[#00652c] focus:outline-none focus:ring-1 focus:ring-[#00652c]/30"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-[#2C2114] uppercase tracking-wider flex items-center gap-1">
-                    <DollarSign className="w-3.5 h-3.5 text-[#00652c]" /> Precio del Producto (CLP)
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    placeholder="25000"
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value)}
-                    className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3.5 py-2.5 text-sm font-mono text-[#2C2114] focus:border-[#00652c] focus:outline-none focus:ring-1 focus:ring-[#00652c]/30"
-                  />
-                </div>
-              </div>
-
-              {/* Product input and Preset buttons */}
-              <div className="space-y-3">
+            <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 flex-1 text-left">
+              {/* Client Name */}
+              <div className="space-y-2">
                 <label className="text-xs font-bold text-[#2C2114] uppercase tracking-wider flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5 text-[#00652c]" /> Producto Solicitado
+                  <User className="w-3.5 h-3.5 text-[#00652c]" /> Nombre del Cliente
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="Ej. Pastel de Bodas Real de 3 Pisos"
-                  value={productName}
-                  onChange={(e) => setProductName(e.target.value)}
+                  placeholder="Ej. María de la Luz"
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
                   className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3.5 py-2.5 text-sm text-[#2C2114] focus:border-[#00652c] focus:outline-none focus:ring-1 focus:ring-[#00652c]/30"
                 />
+              </div>
 
-                <div className="space-y-1.5">
-                  <span className="text-[11px] font-bold text-[#8A755D] uppercase block">Productos de Catálogo Activo (Tap rápido):</span>
-                  <div className="flex flex-wrap gap-1.5 max-h-[140px] overflow-y-auto p-1 border border-dashed border-[#ECE0CC] rounded-xl bg-[#FAF9F5]">
-                    {products.map((preset) => (
+              {/* PRODUCT SELECTION & BASKET */}
+              <div className="space-y-3 bg-white border border-[#EADEC9] rounded-2xl p-4">
+                <span className="text-xs font-bold text-[#2C2114] uppercase tracking-wider flex items-center gap-1.5 border-b border-[#FAF6EE] pb-2">
+                  <Sparkles className="w-4 h-4 text-[#00652c]" /> Canasta de Pasteles y Dulces
+                </span>
+
+                {/* 1. Catalog presets selector (clickable chips) */}
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-[#8A755D] block">Catálogo del día (Toca para agregar):</span>
+                  <div className="flex flex-wrap gap-1.5 max-h-[130px] overflow-y-auto p-1.5 border border-dashed border-[#ECE0CC] rounded-xl bg-[#FAF9F5]">
+                    {products.map((p) => (
                       <button
                         type="button"
-                        key={preset.id}
-                        onClick={() => handleSelectPreset(preset.name, preset.price)}
-                        className={`text-xs px-2.5 py-2 rounded-lg border transition-all truncate text-left hover:scale-[1.01] ${
-                          productName.toLowerCase() === preset.name.toLowerCase()
-                            ? 'bg-[#EAFEEA] border-[#00652c] text-[#00652c] font-semibold'
-                            : 'bg-white border-[#EADEC9] text-[#73624E] hover:bg-[#FAF6EE]'
-                        }`}
+                        key={p.id}
+                        onClick={() => handleAddProductToBasket(p)}
+                        className="text-xs px-2.5 py-1.5 rounded-lg border bg-white border-[#EADEC9] text-[#73624E] hover:bg-[#EAFEEA] hover:border-[#00652c] hover:text-[#00652c] transition-all truncate text-left"
                       >
-                        {preset.name} ({formatCLP(preset.price)})
+                        + {p.name} ({formatCLP(p.price)})
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                {/* 2. Current basket list */}
+                {basket.length > 0 ? (
+                  <div className="space-y-2 pt-2">
+                    <span className="text-[10px] uppercase font-bold text-[#8A755D] block">Productos seleccionados:</span>
+                    <div className="divide-y divide-[#FAF6EE] max-h-[160px] overflow-y-auto pr-1">
+                      {basket.map((item, index) => (
+                        <div key={index} className="flex items-center justify-between py-2 text-xs">
+                          <span className="font-semibold text-[#2C2114] truncate max-w-[280px]">
+                            {item.product.name}
+                          </span>
+                          
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[#8A755D] font-mono mr-2">
+                              {formatCLP(item.product.price * item.quantity)}
+                            </span>
+                            
+                            <div className="flex items-center border border-[#D0C2AB] rounded-lg overflow-hidden bg-[#FAF9F5]">
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateQuantity(item.product.id, -1)}
+                                className="px-2 py-1 hover:bg-[#EADEC9]/40 text-[#73624E] font-bold"
+                              >
+                                <Minus className="w-3 h-3" />
+                              </button>
+                              <span className="px-3 py-1 bg-white font-mono font-bold text-[#2C2114]">
+                                {item.quantity}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleAddProductToBasket(item.product)}
+                                className="px-2 py-1 hover:bg-[#EADEC9]/40 text-[#73624E] font-bold"
+                              >
+                                <Plus className="w-3 h-3" />
+                              </button>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveFromBasket(item.product.id)}
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg ml-1"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-6 text-gray-400 text-xs font-medium">
+                    ⚠️ No has añadido ningún producto. Selecciona arriba para armar la canasta.
+                  </div>
+                )}
+              </div>
+
+              {/* Synthesized Output Preview (Editable) */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 bg-[#FAF9F5] p-4 rounded-2xl border border-[#ECE0CC]">
+                <div className="md:col-span-8 space-y-1">
+                  <label className="text-[10px] font-bold text-[#73624E] uppercase block">Resumen del Pedido (Modificable)</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. 1x Pastel de Bodas"
+                    value={productName}
+                    onChange={(e) => setProductName(e.target.value)}
+                    className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3 py-2 text-xs text-[#2C2114] focus:border-[#00652c] focus:outline-none"
+                  />
+                </div>
+                <div className="md:col-span-4 space-y-1">
+                  <label className="text-[10px] font-bold text-[#73624E] uppercase block">Total a Cobrar (CLP)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">$</span>
+                    <input
+                      type="number"
+                      required
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
+                      className="w-full rounded-xl border border-[#D0C2AB] bg-white pl-6 pr-2 py-2 text-xs font-mono font-bold text-[#00652c] focus:border-[#00652c] focus:outline-none"
+                    />
                   </div>
                 </div>
               </div>
@@ -193,7 +330,7 @@ export default function AddOrderModal({ isOpen, onClose, onAddOrder, products }:
                   <select
                     value={deliveryDate}
                     onChange={(e) => setDeliveryDate(e.target.value)}
-                    className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3.5 py-2 text-sm text-[#2C2114] focus:border-[#00652c] focus:outline-none focus:ring-1 focus:ring-[#00652c]"
+                    className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3.5 py-2 text-sm text-[#2C2114] focus:border-[#00652c] focus:outline-none"
                   >
                     <option value={getRelativeDateString(0)}>Hoy ({getRelativeDateString(0)})</option>
                     <option value={getRelativeDateString(1)}>Mañana ({getRelativeDateString(1)})</option>
@@ -207,14 +344,14 @@ export default function AddOrderModal({ isOpen, onClose, onAddOrder, products }:
 
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-[#2C2114] uppercase tracking-wider flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5 text-[#00652c]" /> Hora de Entrega o Retiro
+                    <Clock className="w-3.5 h-3.5 text-[#00652c]" /> Hora de Despacho
                   </label>
                   <input
                     type="time"
                     required
                     value={deliveryTime}
                     onChange={(e) => setDeliveryTime(e.target.value)}
-                    className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3.5 py-1.5 text-sm font-mono text-[#2C2114] focus:border-[#00652c] focus:outline-none focus:ring-1 focus:ring-[#00652c]"
+                    className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3.5 py-1.5 text-sm font-mono text-[#2C2114] focus:border-[#00652c] focus:outline-none"
                   />
                 </div>
 
@@ -225,7 +362,7 @@ export default function AddOrderModal({ isOpen, onClose, onAddOrder, products }:
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value as OrderStatus)}
-                    className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3.5 py-2 text-sm text-[#2C2114] focus:border-[#00652c] focus:outline-none focus:ring-1 focus:ring-[#00652c]"
+                    className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3.5 py-2 text-sm text-[#2C2114] focus:border-[#00652c] focus:outline-none"
                   >
                     <option value="Pendiente">Pendiente (No proyectar)</option>
                     <option value="Confirmado">Confirmado (Proyectar)</option>
@@ -256,11 +393,11 @@ export default function AddOrderModal({ isOpen, onClose, onAddOrder, products }:
                           setDeliveryFee(matched.fee);
                         }
                       }}
-                      className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3.5 py-2 text-sm text-[#2C2114] focus:border-[#00652c] focus:outline-none focus:ring-1 focus:ring-[#00652c]"
+                      className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3.5 py-2 text-sm text-[#2C2114] focus:border-[#00652c] focus:outline-none"
                     >
                       {DELIVERY_ZONES.map((zone, idx) => (
                         <option key={idx} value={zone.name}>
-                          {zone.name} ({formatCLP(zone.fee)})
+                          {zone.name} {zone.name !== 'Retiro en local' && zone.name !== 'Personalizado (Ingreso manual)' ? `(${formatCLP(zone.fee)})` : ''}
                         </option>
                       ))}
                     </select>
@@ -277,12 +414,185 @@ export default function AddOrderModal({ isOpen, onClose, onAddOrder, products }:
                       placeholder={deliveryZone === 'Retiro en local' ? 'No aplica - Cliente retira en local' : 'Ej. Av. Vitacura 3500, Vitacura'}
                       value={deliveryAddress}
                       onChange={(e) => setDeliveryAddress(e.target.value)}
-                      className={`w-full rounded-xl border px-3.5 py-2.5 text-sm text-[#2C2114] focus:border-[#00652c] focus:outline-none focus:ring-1 focus:ring-[#00652c] ${
+                      className={`w-full rounded-xl border px-3.5 py-2.5 text-sm text-[#2C2114] focus:border-[#00652c] focus:outline-none ${
                         deliveryZone === 'Retiro en local' ? 'bg-[#FAF6EE]/50 border-dashed border-[#DED0B6] text-gray-400' : 'bg-white border-[#D0C2AB]'
                       }`}
                     />
                   </div>
                 </div>
+
+                {/* Manual Fee Overrider Field */}
+                {deliveryZone !== 'Retiro en local' && (
+                  <div className="space-y-1.5 pt-2 border-t border-dashed border-[#ECE0CC] max-w-xs">
+                    <label className="text-[11px] font-bold text-[#73624E] uppercase block">
+                      Tarifa Personalizada de Despacho (Modificable)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">$</span>
+                      <input
+                        type="number"
+                        placeholder="Cantidad a cobrar por delivery"
+                        value={deliveryFee}
+                        onChange={(e) => setDeliveryFee(Number(e.target.value) || 0)}
+                        className="w-full rounded-xl border border-[#D0C2AB] bg-white pl-6 pr-2 py-2 text-xs font-mono font-semibold text-[#2C2114] focus:border-[#00652c] focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* MEDIO DE PAGO */}
+              <div className="bg-[#FAF6EE] p-4 rounded-xl border border-[#ECE0CC] space-y-3">
+                <label className="text-xs font-bold text-[#2C2114] uppercase tracking-wider block">
+                  💳 Medio de Pago Seleccionado
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {[
+                    { value: 'Efectivo', label: 'Efectivo 💵' },
+                    { value: 'Transferencia', label: 'Transfer 📲' },
+                    { value: 'Tarjeta', label: 'Tarjeta 💳' },
+                    { value: 'Parcial', label: 'Parcial 👥' }
+                  ].map(method => (
+                    <button
+                      key={method.value}
+                      type="button"
+                      onClick={() => setPaymentMethod(method.value as any)}
+                      className={`px-3 py-2 text-xs font-bold rounded-xl border text-center transition-all ${
+                        paymentMethod === method.value
+                          ? 'bg-[#00652c] border-[#00652c] text-white shadow-2xs'
+                          : 'bg-white border-[#D0C2AB] text-[#73624E] hover:bg-[#FAF9F5]'
+                      }`}
+                    >
+                      {method.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Split inputs if Parcial */}
+                {paymentMethod === 'Parcial' && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="mt-3 p-3 bg-white rounded-xl border border-[#EADEC9] space-y-3 overflow-hidden text-left"
+                  >
+                    <div className="text-xs font-bold text-[#73624E] mb-1">
+                      Desglose de Pago Parcial (Abonos)
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-gray-500 block">Efectivo 💵</label>
+                        <div className="relative">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-gray-400">$</span>
+                          <input
+                            type="number"
+                            min="0"
+                            placeholder="0"
+                            value={payEfectivo || ''}
+                            onChange={(e) => setPayEfectivo(Math.max(0, Number(e.target.value) || 0))}
+                            className="w-full text-xs font-mono p-1.5 pl-4 border border-[#D0C2AB] rounded-lg focus:outline-none focus:border-[#00652c]"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-gray-500 block">Transfer 📲</label>
+                        <div className="relative">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-gray-400">$</span>
+                          <input
+                            type="number"
+                            min="0"
+                            placeholder="0"
+                            value={payTransferencia || ''}
+                            onChange={(e) => setPayTransferencia(Math.max(0, Number(e.target.value) || 0))}
+                            className="w-full text-xs font-mono p-1.5 pl-4 border border-[#D0C2AB] rounded-lg focus:outline-none focus:border-[#00652c]"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-gray-500 block">Tarjeta 💳</label>
+                        <div className="relative">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-gray-400">$</span>
+                          <input
+                            type="number"
+                            min="0"
+                            placeholder="0"
+                            value={payTarjeta || ''}
+                            onChange={(e) => setPayTarjeta(Math.max(0, Number(e.target.value) || 0))}
+                            className="w-full text-xs font-mono p-1.5 pl-4 border border-[#D0C2AB] rounded-lg focus:outline-none focus:border-[#00652c]"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-[#FAF9F5] p-2.5 rounded-lg text-[11px] space-y-1.5 border border-[#ECE0CC]">
+                      <div className="flex justify-between font-medium text-[#73624E]">
+                        <span>Total del Pedido (+ Delivery):</span>
+                        <span className="font-mono font-bold text-gray-800">{formatCLP(Number(price) + Number(deliveryFee))}</span>
+                      </div>
+                      <div className="flex justify-between font-medium text-[#73624E]">
+                        <span>Monto Ingresado (Abonado):</span>
+                        <span className="font-mono font-bold text-[#00652c]">{formatCLP(payEfectivo + payTransferencia + payTarjeta)}</span>
+                      </div>
+                      
+                      {/* Comparison Status */}
+                      <div className="pt-1.5 border-t border-[#ECE0CC] flex justify-between items-center text-xs">
+                        <span className="font-bold">Estado del Pago:</span>
+                        {(payEfectivo + payTransferencia + payTarjeta) >= (Number(price) + Number(deliveryFee)) ? (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                            Totalmente Pagado 🟢
+                          </span>
+                        ) : (payEfectivo + payTransferencia + payTarjeta) > 0 ? (
+                          <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
+                            Abonado parcial 🟡 (Falta {formatCLP((Number(price) + Number(deliveryFee)) - (payEfectivo + payTransferencia + payTarjeta))})
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold">
+                            No pagado yet 🔴
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Quick full-filler helper */}
+                      { (Number(price) + Number(deliveryFee)) - (payEfectivo + payTransferencia + payTarjeta) > 0 && (
+                        <div className="pt-2 flex flex-wrap gap-1.5">
+                          <span className="text-[10px] text-gray-500 self-center">Autocompletar faltante:</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const remainingVal = (Number(price) + Number(deliveryFee)) - (payEfectivo + payTransferencia + payTarjeta);
+                              setPayEfectivo(prev => prev + remainingVal);
+                            }}
+                            className="bg-white border border-[#D0C2AB] hover:bg-[#FAF9F5] px-2 py-0.5 rounded text-[10px] font-bold text-[#73624E] transition-all"
+                          >
+                            + Efec 💵
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const remainingVal = (Number(price) + Number(deliveryFee)) - (payEfectivo + payTransferencia + payTarjeta);
+                              setPayTransferencia(prev => prev + remainingVal);
+                            }}
+                            className="bg-white border border-[#D0C2AB] hover:bg-[#FAF9F5] px-2 py-0.5 rounded text-[10px] font-bold text-[#73624E] transition-all"
+                          >
+                            + Transfer 📲
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const remainingVal = (Number(price) + Number(deliveryFee)) - (payEfectivo + payTransferencia + payTarjeta);
+                              setPayTarjeta(prev => prev + remainingVal);
+                            }}
+                            className="bg-white border border-[#D0C2AB] hover:bg-[#FAF9F5] px-2 py-0.5 rounded text-[10px] font-bold text-[#73624E] transition-all"
+                          >
+                            + Tarj 💳
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
               </div>
 
               {/* Action buttons */}

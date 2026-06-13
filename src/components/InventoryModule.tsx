@@ -11,7 +11,11 @@ import {
   UtensilsCrossed,
   Printer,
   RotateCcw,
-  RefreshCw
+  RefreshCw,
+  Download,
+  FileText,
+  Wheat,
+  Trash2
 } from 'lucide-react';
 import { Ingredient, Recipe } from '../types';
 
@@ -21,6 +25,8 @@ interface InventoryModuleProps {
   onUpdateStock: (ingredientId: string, delta: number) => void;
   onRestock: (ingredientId: string) => void;
   onToggleRecipeActive: (recipeId: string) => void;
+  onAddIngredient?: (name: string, initialStock: number, criticalLimit: number, unit: string, category: string) => Promise<void>;
+  onDeleteIngredient?: (ingredientId: string) => Promise<void> | void;
 }
 
 export default function InventoryModule({
@@ -28,10 +34,52 @@ export default function InventoryModule({
   recipes,
   onUpdateStock,
   onRestock,
-  onToggleRecipeActive
+  onToggleRecipeActive,
+  onAddIngredient,
+  onDeleteIngredient
 }: InventoryModuleProps) {
   // Checklist local states for buying checkboxes
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
+
+  // Confirm delete local state for ingredients
+  const [confirmDeleteIngId, setConfirmDeleteIngId] = useState<string | null>(null);
+
+  // New States for Ingredient registration
+  const [isAddingIng, setIsAddingIng] = useState(false);
+  const [ingName, setIngName] = useState('');
+  const [ingCategory, setIngCategory] = useState('Materia Seca');
+  const [ingUnit, setIngUnit] = useState('Kg');
+  const [ingStock, setIngStock] = useState('');
+  const [ingLimit, setIngLimit] = useState('');
+  const [submittingIng, setSubmittingIng] = useState(false);
+
+  const handleSubmitIng = async () => {
+    if (!ingName.trim() || !ingStock || isNaN(Number(ingStock)) || !ingLimit || isNaN(Number(ingLimit))) {
+      alert('Por favor complete todos los datos del insumo.');
+      return;
+    }
+    if (onAddIngredient) {
+      setSubmittingIng(true);
+      try {
+        await onAddIngredient(
+          ingName.trim(), 
+          Number(ingStock), 
+          Number(ingLimit), 
+          ingUnit, 
+          ingCategory
+        );
+        setIsAddingIng(false);
+        setIngName('');
+        setIngStock('');
+        setIngLimit('');
+        alert('Insumo registrado con éxito en el catálogo.');
+      } catch (err: any) {
+        alert(err.message || 'Error al guardar insumo');
+      } finally {
+        setSubmittingIng(false);
+      }
+    }
+  };
 
   const toggleCheck = (id: string) => {
     setCheckedItems(prev => ({
@@ -94,25 +142,45 @@ export default function InventoryModule({
 
   // Simulation parameters
   const [showPrintModal, setShowPrintModal] = useState(false);
-  const [phoneNumber, setPhoneNumber] = useState('56912345678');
-  const [showPhoneConfig, setShowPhoneConfig] = useState(false);
 
-  const getWhatsAppMessage = () => {
-    let msg = `*🍞 Artisan Bakehouse - Lista de Compras 🇨🇱*\n`;
-    msg += `Fecha: ${new Date().toLocaleDateString('es-CL')}\n\n`;
-    msg += `⚠️ *Insumos Críticos a Comprar:* \n`;
+  const handleDownloadList = () => {
+    let text = `========================================================\n`;
+    text += `          🎨 ARTISAN BAKEHOUSE - LISTA DE COMPRAS 🇨🇱\n`;
+    text += `          Fecha de emisión: ${new Date().toLocaleDateString('es-CL')}\n`;
+    text += `========================================================\n\n`;
+    text += `⚠️ INSUMOS CRÍTICOS A COMPRAR:\n\n`;
     
+    let count = 1;
     shoppingList.forEach(item => {
       const isChecked = !!checkedItems[item.id];
       if (!isChecked) {
         const required = Math.max(item.criticalLimit, item.requiredThisWeek);
         const missing = Math.max(0, Number((required - item.currentStock).toFixed(2)));
-        msg += `• *${item.name}*: Falta *${missing} ${item.unit}* (Stock: ${item.currentStock} / Requerido: ${required})\n`;
+        text += `${count}. [ ] ${item.name.toUpperCase()}\n`;
+        text += `   - Cantidad a comprar: ${missing} ${item.unit}\n`;
+        text += `   - Stock actual: ${item.currentStock} ${item.unit} (Nivel Mínimo: ${required} ${item.unit})\n`;
+        text += `   - Categoría: ${item.category}\n\n`;
+        count++;
       }
     });
-    
-    msg += `\n_Generado automáticamente desde el Dashboard de Cocina_`;
-    return encodeURIComponent(msg);
+
+    if (count === 1) {
+      text += `¡Todos los ingredientes tienen stock óptimo actual!\n`;
+    }
+
+    text += `--------------------------------------------------------\n`;
+    text += `Generado automáticamente por el Sistema de Control de Pastelería.\n`;
+    text += `========================================================\n`;
+
+    const blob = new Blob(['\uFEFF' + text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Lista_Compras_Artisan_${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -148,51 +216,14 @@ export default function InventoryModule({
                 <Printer className="w-3.5 h-3.5" /> {showPrintModal ? 'Espere...' : 'Imprimir'}
               </button>
               
-              <div className="relative">
-                <button
-                  onClick={() => setShowPhoneConfig(!showPhoneConfig)}
-                  className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-all px-2.5 py-1.5 rounded-lg cursor-pointer shadow-2xs"
-                >
-                  <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse shrink-0" />
-                  <span>Enviar a WhatsApp</span>
-                </button>
-                
-                {showPhoneConfig && (
-                  <div className="absolute right-0 mt-2 bg-white border border-[#EADEC9] p-4 rounded-xl shadow-xl z-50 w-64 text-left">
-                    <p className="text-xs font-bold text-[#2C2114] mb-1">Destinatario WhatsApp (Chile)</p>
-                    <p className="text-[10px] text-[#73624E] mb-2 leading-tight">Ingresa el celular con código de país sin el signo '+' (ej: 56912345678)</p>
-                    <div className="flex gap-2">
-                      <input 
-                        type="text" 
-                        value={phoneNumber} 
-                        onChange={(e) => setPhoneNumber(e.target.value.replace(/[^0-9]/g, ''))}
-                        className="flex-1 px-2.5 py-1.5 text-xs border border-[#ECE0CC] rounded-lg focus:outline-[#00652c] font-mono"
-                        placeholder="56912345678"
-                      />
-                    </div>
-                    <div className="flex justify-end gap-2 mt-3 text-xs">
-                      <button 
-                        onClick={() => setShowPhoneConfig(false)} 
-                        className="px-2 py-1 text-[11px] text-[#73624E] hover:underline"
-                      >
-                        Cancelar
-                      </button>
-                      <a 
-                        href={`https://api.whatsapp.com/send?phone=${phoneNumber}&text=${getWhatsAppMessage()}`}
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        onClick={() => {
-                          setShowPhoneConfig(false);
-                          alert('Conexión redirigida con éxito. Se abrirá la aplicación o web de WhatsApp para despachar el mensaje.');
-                        }}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg text-center"
-                      >
-                        Enviar Ahora
-                      </a>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <button
+                onClick={handleDownloadList}
+                className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-all px-3.5 py-1.5 rounded-lg cursor-pointer shadow-2xs"
+                title="Descargar lista de compras en formato legible para el dispositivo"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Descargar Lista</span>
+              </button>
             </div>
           </div>
 
@@ -383,7 +414,223 @@ export default function InventoryModule({
           </p>
         </div>
       </div>
-      
+
+      {/* SECTION: GENERAL INGREDIENTS INVENTORY (See all ingredients & Add new ones!) */}
+      <div className="xl:col-span-12 bg-[#FDFBF7] rounded-3xl border border-[#EADEC9] p-6 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-[#EADEC9]/60 gap-4">
+          <div>
+            <h3 className="font-sans font-bold text-xl text-[#2C2114] flex items-center gap-2">
+              <Wheat className="w-5.5 h-5.5 text-amber-700" /> Catálogo General de Insumos (Materia Prima)
+            </h3>
+            <p className="text-xs text-[#73624E] mt-0.5">
+              Visualice la totalidad de las materias primas del taller y registre nuevos ingredientes para asociar en recetas
+            </p>
+          </div>
+
+          {/* Toggle form button */}
+          <button
+            onClick={() => setIsAddingIng(!isAddingIng)}
+            className="flex items-center gap-1.5 text-xs bg-[#00652c] hover:bg-[#005123] text-white font-bold transition-all px-4 py-2.5 rounded-xl cursor-pointer shadow-2xs"
+          >
+            <Plus className="w-4 h-4" />
+            <span>{isAddingIng ? 'Cerrrar Formulario' : 'Registrar Nuevo Insumo'}</span>
+          </button>
+        </div>
+
+        {/* Collapsible Form */}
+        {isAddingIng && (
+          <div className="bg-white border border-[#E9DEC7] p-5 rounded-2xl shadow-6xs max-w-2xl text-left">
+            <h4 className="font-sans font-bold text-sm text-[#2C2114] uppercase mb-4 flex items-center gap-1.5 border-b border-gray-100 pb-2">
+              Registrar Nueva Materia Prima
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-[#73624E]">Nombre del Insumo</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Harina de Centeno Suprema"
+                  value={ingName}
+                  onChange={(e) => setIngName(e.target.value)}
+                  className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3 py-2 text-xs focus:border-[#00652c] focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-[#73624E]">Categoría</label>
+                <select
+                  value={ingCategory}
+                  onChange={(e) => setIngCategory(e.target.value)}
+                  className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3 py-2 text-xs focus:border-[#00652c] focus:outline-none"
+                >
+                  <option value="Materia Seca">Materia Seca (Harina, azúcar, etc)</option>
+                  <option value="Lácteos/Grasas">Lácteos/Grasas (Manteca, mantequilla, crema)</option>
+                  <option value="Fermentos">Fermentos (Levaduras, masa madre)</option>
+                  <option value="Dulces">Dulces & Chocolates</option>
+                  <option value="Huevos">Huevos & Ovoproductos</option>
+                  <option value="Frutas">Frutas & Semillas</option>
+                  <option value="Envases">Envases & Cajas</option>
+                  <option value="Otros">Otros Insumos</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-[#73624E]">Unidad de Medida Principal</label>
+                <select
+                  value={ingUnit}
+                  onChange={(e) => setIngUnit(e.target.value)}
+                  className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3 py-2 text-xs focus:border-[#00652c] focus:outline-none"
+                >
+                  <option value="Kg">Kilogramo (Kg)</option>
+                  <option value="Gramo">Gramo (g)</option>
+                  <option value="Litro">Litro (L)</option>
+                  <option value="ml">Mililitro (ml)</option>
+                  <option value="unidades">Unidades (uds)</option>
+                  <option value="onzas">Onzas (oz)</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-[#73624E]">Stock Inicial</label>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="0"
+                    value={ingStock}
+                    onChange={(e) => setIngStock(e.target.value)}
+                    className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3 py-2 text-xs font-mono focus:border-[#00652c] focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-[#73624E]">Límite Crítico</label>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="Ej. 5"
+                    value={ingLimit}
+                    onChange={(e) => setIngLimit(e.target.value)}
+                    className="w-full rounded-xl border border-[#D0C2AB] bg-white px-3 py-2 text-xs font-mono focus:border-[#00652c] focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end mt-4 pt-4 border-t border-[#ECE0CC]">
+              <button
+                type="button"
+                onClick={() => setIsAddingIng(false)}
+                className="px-4 py-2 border border-[#D0C2AB] text-xs font-bold rounded-xl text-gray-600 hover:bg-gray-50 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={submittingIng}
+                onClick={handleSubmitIng}
+                className="px-4 py-2 bg-[#00652c] hover:bg-[#005123] text-white text-xs font-bold rounded-xl cursor-pointer"
+              >
+                {submittingIng ? 'Guardando...' : 'Crear Insumo'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Ingredients Grid view */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 pt-2 text-left">
+          {ingredients.map((ing) => {
+            const isLow = ing.currentStock < ing.criticalLimit;
+            return (
+              <div 
+                key={ing.id}
+                className={`p-3.5 rounded-2xl border flex flex-col justify-between space-y-2 relative transition-all ${
+                  isLow 
+                    ? 'bg-[#FFF9F9] border-[#FFAEA9] shadow-2xs' 
+                    : 'bg-white border-[#EADEC9]/70 hover:border-[#C8B89C] shadow-6xs'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between text-[9px] uppercase font-bold text-gray-400">
+                    <span className="font-mono font-black">{ing.id}</span>
+                    <span className="font-mono bg-amber-50 text-amber-700 px-1 py-0.5 rounded-md font-bold truncate max-w-[80px]" title={ing.category}>
+                      {ing.category}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-bold text-[#2C2114] mt-1.5 pr-4 truncate" title={ing.name}>
+                    {ing.name}
+                  </h4>
+                </div>
+
+                <div className="pt-1.5 border-t border-[#FAF6EE]">
+                  <span className="text-[10px] text-[#8C7A65] block uppercase font-mono">Stock</span>
+                  <div className="flex items-baseline gap-1 mt-0.5">
+                    <span className={`text-base font-mono font-extrabold ${isLow ? 'text-red-700' : 'text-[#00652c]'}`}>
+                      {ing.currentStock}
+                    </span>
+                    <span className="text-[10px] text-gray-500 font-mono">{ing.unit}</span>
+                  </div>
+                  <span className="text-[9px] text-[#A18A68] mt-1 block">
+                    Mínimo: <strong className="font-mono">{ing.criticalLimit} {ing.unit}</strong>
+                  </span>
+                </div>
+
+                {/* Indicator dot */}
+                <div className={`absolute top-2.5 right-8 w-2 h-2 rounded-full ${isLow ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
+                
+                {/* Deletion trigger */}
+                {onDeleteIngredient && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmDeleteIngId(ing.id);
+                    }}
+                    className="absolute top-1.5 right-1.5 text-gray-400 hover:text-red-650 p-0.5 rounded transition-colors cursor-pointer"
+                    title="Eliminar insumo del inventario"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 hover:text-red-650 shrink-0" />
+                  </button>
+                )}
+
+                {/* Confirmation Overlay inside the card */}
+                {confirmDeleteIngId === ing.id && (
+                  <div className="absolute inset-0 bg-[#FFF5F5] rounded-2xl p-3 flex flex-col justify-between border-2 border-red-300 z-20 text-center select-none animate-fadeIn">
+                    <div className="my-auto space-y-1.5">
+                      <h5 className="text-[11px] font-bold text-red-800 uppercase tracking-wide">¿Eliminar Insumo?</h5>
+                      <p className="text-[10.5px] text-gray-600 font-semibold leading-tight line-clamp-2">{ing.name}</p>
+                      <p className="text-[9px] text-red-500 leading-tight">¿Deseas quitar este insumo del catálogo?</p>
+                    </div>
+                    <div className="flex gap-2 justify-center pb-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onDeleteIngredient) {
+                            onDeleteIngredient(ing.id);
+                          }
+                          setConfirmDeleteIngId(null);
+                        }}
+                        className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold shadow-2xs transition-all cursor-pointer"
+                      >
+                        Sí, Borrar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmDeleteIngId(null);
+                        }}
+                        className="px-3 py-1 bg-white border border-gray-300 text-gray-700 hover:bg-gray-150 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
+                      >
+                        No
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

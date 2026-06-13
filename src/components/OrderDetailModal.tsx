@@ -12,23 +12,35 @@ import {
   CheckCircle,
   Play,
   RotateCcw,
-  ShoppingBag
+  ShoppingBag,
+  Trash2
 } from 'lucide-react';
 import { Order, OrderStatus } from '../types';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface OrderDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   order: Order | null;
   onUpdateStatus: (orderId: string, newStatus: OrderStatus) => void;
+  onUpdatePayment?: (
+    orderId: string,
+    paymentMethod: string,
+    amountPaid: number,
+    paymentEfectivo: number,
+    paymentTransferencia: number,
+    paymentTarjeta: number
+  ) => void;
+  onDeleteOrder?: (orderId: string) => Promise<void> | void;
 }
 
 export default function OrderDetailModal({
   isOpen,
   onClose,
   order,
-  onUpdateStatus
+  onUpdateStatus,
+  onUpdatePayment,
+  onDeleteOrder
 }: OrderDetailModalProps) {
   // Parsing the products. Check if user typed multiple separated by comma, plus or 'y'
   const getProductItemsList = (productName: string) => {
@@ -43,6 +55,28 @@ export default function OrderDetailModal({
 
   // State to track checked subproducts for kitchen picklist satisfaction
   const [checkedItems, setCheckedItems] = useState<Record<number, boolean>>({});
+
+  // Payment editing states
+  const [isEditingPayment, setIsEditingPayment] = useState(false);
+  const [editMethod, setEditMethod] = useState<string>('Efectivo');
+  const [editEf, setEditEf] = useState<number>(0);
+  const [editTrans, setEditTrans] = useState<number>(0);
+  const [editTar, setEditTar] = useState<number>(0);
+
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+
+  // Sync editing fields when order changes
+  useEffect(() => {
+    if (order) {
+      setEditMethod(order.paymentMethod || 'Efectivo');
+      setEditEf(order.paymentEfectivo || 0);
+      setEditTrans(order.paymentTransferencia || 0);
+      setEditTar(order.paymentTarjeta || 0);
+      setIsEditingPayment(false);
+      setCheckedItems({});
+      setIsConfirmingDelete(false);
+    }
+  }, [order]);
 
   const toggleProductItem = (id: number) => {
     setCheckedItems(prev => ({ ...prev, [id]: !prev[id] }));
@@ -82,6 +116,32 @@ export default function OrderDetailModal({
       default:
         return null;
     }
+  };
+
+  const handleSavePaymentEdits = () => {
+    if (!onUpdatePayment) return;
+    const grandTotal = order.total + (order.deliveryFee || 0);
+    
+    let finalPaid = grandTotal;
+    let finalEf = 0;
+    let finalTrans = 0;
+    let finalTar = 0;
+
+    if (editMethod === 'Efectivo') {
+      finalEf = grandTotal;
+    } else if (editMethod === 'Transferencia') {
+      finalTrans = grandTotal;
+    } else if (editMethod === 'Tarjeta') {
+      finalTar = grandTotal;
+    } else if (editMethod === 'Parcial') {
+      finalPaid = editEf + editTrans + editTar;
+      finalEf = editEf;
+      finalTrans = editTrans;
+      finalTar = editTar;
+    }
+
+    onUpdatePayment(order.id, editMethod, finalPaid, finalEf, finalTrans, finalTar);
+    setIsEditingPayment(false);
   };
 
   const nextAction = getNextStatusAction(order.status);
@@ -215,16 +275,168 @@ export default function OrderDetailModal({
               {/* Delivery and Route Info */}
               <div className="bg-[#FAF6EE] border border-[#ECE0CC] p-4 rounded-2xl space-y-3">
                 <span className="text-xs font-bold text-[#2C2114] uppercase tracking-wider flex items-center gap-1.5">
-                  <Truck className="w-4 h-4 text-[#A81A1A]" /> Logística de Entrega
+                  <Truck className="w-4 h-4 text-[#A81A1A]" /> Logística de Entrega & Pago
                 </span>
                 
                 <div className="text-sm bg-white p-3 rounded-xl border border-[#ECE0CC] flex items-start gap-2.5">
                   <MapPin className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <span className="text-[10px] text-gray-400 block font-bold">Dirección de Despacho</span>
                     <p className="font-semibold text-gray-800 mt-0.5">
                       {order.deliveryAddress || 'Retiro Presencial en Local de Panadería'}
                     </p>
+                  </div>
+                </div>
+
+                <div className="text-sm bg-white p-3.5 rounded-xl border border-[#ECE0CC] space-y-3 text-left">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-[#8A755D]">Medio de Pago Principal:</span>
+                    <span className="font-sans font-extrabold text-[#00652c] text-xs bg-[#EAFEEA] border border-[#BFF6C3] px-3 py-1 rounded-lg">
+                      {order.paymentMethod || 'Efectivo'}
+                    </span>
+                  </div>
+
+                  {/* Payment tracking details */}
+                  <div className="pt-2.5 border-t border-dashed border-[#ECE0CC] space-y-2">
+                    <div className="flex justify-between text-xs font-semibold text-gray-600">
+                      <span>Total Abonado / Pagado:</span>
+                      <strong className="font-mono text-[#00652c]">{formatCLP(order.amountPaid ?? (order.total + (order.deliveryFee || 0)))}</strong>
+                    </div>
+
+                    {order.paymentMethod === 'Parcial' && (
+                      <div className="bg-[#FAF9F5] p-2.5 rounded-lg text-xs space-y-2 border border-[#EADEC9]">
+                        <div className="text-[9px] uppercase font-bold text-gray-400">Historial de Abonos registrados:</div>
+                        <div className="grid grid-cols-3 gap-1.5 text-center">
+                          <div className="bg-white p-1.5 rounded border border-[#ECE0CC]">
+                            <div className="text-[9px] text-gray-400 font-semibold">Efec 💵</div>
+                            <div className="font-mono font-bold text-[#73624E] text-[11px]">{formatCLP(order.paymentEfectivo || 0)}</div>
+                          </div>
+                          <div className="bg-white p-1.5 rounded border border-[#ECE0CC]">
+                            <div className="text-[9px] text-gray-400 font-semibold">Transf 📲</div>
+                            <div className="font-mono font-bold text-[#73624E] text-[11px]">{formatCLP(order.paymentTransferencia || 0)}</div>
+                          </div>
+                          <div className="bg-white p-1.5 rounded border border-[#ECE0CC]">
+                            <div className="text-[9px] text-gray-400 font-semibold">Tarj 💳</div>
+                            <div className="font-mono font-bold text-[#73624E] text-[11px]">{formatCLP(order.paymentTarjeta || 0)}</div>
+                          </div>
+                        </div>
+
+                        {/* Status bar */}
+                        <div className="pt-1 border-t border-[#ECE0CC] flex justify-between items-center text-[11px]">
+                          <span className="font-bold text-[#73624E]">Saldo Restante:</span>
+                          {((order.amountPaid || 0) >= (order.total + (order.deliveryFee || 0))) ? (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                              ✓ Total Completo 🟢
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
+                              Pendiente: {formatCLP((order.total + (order.deliveryFee || 0)) - (order.amountPaid || 0))} 🟡
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* INTERACTIVE PAYMENT EDITOR INTEGRATION */}
+                    {onUpdatePayment && (
+                      <div className="pt-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingPayment(!isEditingPayment)}
+                          className="w-full py-2 rounded-xl border border-[#00652c] text-[#00652c] hover:bg-emerald-50 text-[11px] font-bold transition-all text-center cursor-pointer block"
+                        >
+                          {isEditingPayment ? '✕ Cerrar Editor' : '✏️ Editar Métodos o Registrar Abonos'}
+                        </button>
+
+                        {isEditingPayment && (
+                          <div className="mt-3 p-3 bg-[#FAF6EE] rounded-xl border border-[#EADEC9] space-y-3 text-left">
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-bold text-[#73624E] uppercase block">
+                                Método de Pago Actualizado
+                              </label>
+                              <div className="grid grid-cols-4 gap-1">
+                                {['Efectivo', 'Transferencia', 'Tarjeta', 'Parcial'].map(m => (
+                                  <button
+                                    key={m}
+                                    type="button"
+                                    onClick={() => {
+                                      setEditMethod(m);
+                                      if (m !== 'Parcial') {
+                                        const tot = order.total + (order.deliveryFee || 0);
+                                        setEditEf(m === 'Efectivo' ? tot : 0);
+                                        setEditTrans(m === 'Transferencia' ? tot : 0);
+                                        setEditTar(m === 'Tarjeta' ? tot : 0);
+                                      }
+                                    }}
+                                    className={`px-1 py-1.5 text-[9px] font-bold rounded-lg border text-center transition-all ${
+                                      editMethod === m
+                                        ? 'bg-[#00652c] border-[#00652c] text-white'
+                                        : 'bg-white border-[#D0C2AB] text-[#73624E] hover:bg-[#FAF9F5]'
+                                    }`}
+                                  >
+                                    {m}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            {editMethod === 'Parcial' && (
+                              <div className="grid grid-cols-3 gap-2">
+                                <div className="space-y-1">
+                                  <label className="text-[9px] font-bold text-gray-500 block">Efectivo 💵</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={editEf || ''}
+                                    onChange={(e) => setEditEf(Math.max(0, Number(e.target.value) || 0))}
+                                    className="w-full text-xs font-mono p-1 border border-[#D0C2AB] rounded focus:outline-none focus:border-[#00652c] bg-white"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[9px] font-bold text-gray-500 block">Transfer 📲</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={editTrans || ''}
+                                    onChange={(e) => setEditTrans(Math.max(0, Number(e.target.value) || 0))}
+                                    className="w-full text-xs font-mono p-1 border border-[#D0C2AB] rounded focus:outline-none focus:border-[#00652c] bg-white"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[9px] font-bold text-gray-500 block">Tarjeta 💳</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={editTar || ''}
+                                    onChange={(e) => setEditTar(Math.max(0, Number(e.target.value) || 0))}
+                                    className="w-full text-xs font-mono p-1 border border-[#D0C2AB] rounded focus:outline-none focus:border-[#00652c] bg-white"
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="bg-white p-2.5 rounded-lg border border-[#ECE0CC] text-[11px] space-y-1">
+                              <div className="flex justify-between text-gray-500">
+                                <span>Total del Pedido:</span>
+                                <span>{formatCLP(order.total + (order.deliveryFee || 0))}</span>
+                              </div>
+                              <div className="flex justify-between font-bold text-[#00652c]">
+                                <span>Monto Registrado:</span>
+                                <span>{formatCLP(editMethod === 'Parcial' ? (editEf + editTrans + editTar) : (order.total + (order.deliveryFee || 0)))}</span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={handleSavePaymentEdits}
+                              className="w-full py-2 bg-[#00652c] text-white rounded-xl hover:bg-[#005123] text-xs font-bold transition-all text-center cursor-pointer shadow-xs block"
+                            >
+                              Guardar Cambios de Pago
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -252,45 +464,89 @@ export default function OrderDetailModal({
             </div>
 
             {/* Actions Footer */}
-            <div className="bg-[#FAF6EE] border-t border-[#EADEC9] p-5 flex flex-wrap gap-2.5 shrink-0">
+            <div className="bg-[#FAF6EE] border-t border-[#EADEC9] p-5 flex flex-col gap-3 shrink-0">
               
-              {/* Transition status button */}
-              {nextAction ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onUpdateStatus(order.id, nextAction.next);
-                    onClose();
-                  }}
-                  className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-white text-xs font-bold transition-all hover:scale-[1.01] shadow-xs cursor-pointer text-center ${nextAction.color}`}
-                >
-                  {nextAction.label}
-                </button>
-              ) : (
-                <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 flex items-center justify-center gap-1.5 text-[#00652c] font-bold text-xs">
-                  <CheckCircle className="w-4 h-4" /> ¡Elaboración Completada!
+              {onDeleteOrder && (
+                <div className="w-full border-b border-[#EADEC9]/60 pb-3">
+                  {!isConfirmingDelete ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmingDelete(true)}
+                      className="w-full py-2.5 rounded-xl border border-rose-200 hover:border-rose-400 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4 text-rose-500" />
+                      <span>Eliminar Pedido</span>
+                    </button>
+                  ) : (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-xl space-y-2 text-center">
+                      <p className="text-xs font-bold text-red-800">¿Está seguro que desea eliminar este pedido?</p>
+                      <p className="text-[10px] text-red-600 font-medium select-none">Esta acción es irreversible y afectará la contabilidad.</p>
+                      <div className="flex gap-2 justify-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onDeleteOrder) {
+                              onDeleteOrder(order.id);
+                            }
+                            setIsConfirmingDelete(false);
+                            onClose();
+                          }}
+                          className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer"
+                        >
+                          Sí, Eliminar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsConfirmingDelete(false)}
+                          className="px-4 py-1.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                        >
+                          No, Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Secondary action: simulated invoice print */}
-              <button
-                type="button"
-                onClick={() => {
-                  alert(`Imprimiendo comanda de cocina para pedido ${order.id}. Ticket enviado a la impresora.`);
-                }}
-                className="px-3.5 py-3 rounded-xl bg-white border border-[#D0C2AB] hover:bg-[#FAF6EE] text-[#73624E] text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
-                title="Imprimir Ticket"
-              >
-                <Printer className="w-4 h-4" /> Imprimir Comanda
-              </button>
+              <div className="flex flex-wrap gap-2.5">
+                {/* Transition status button */}
+                {nextAction ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUpdateStatus(order.id, nextAction.next);
+                      onClose();
+                    }}
+                    className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-white text-xs font-bold transition-all hover:scale-[1.01] shadow-xs cursor-pointer text-center ${nextAction.color}`}
+                  >
+                    {nextAction.label}
+                  </button>
+                ) : (
+                  <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 flex items-center justify-center gap-1.5 text-[#00652c] font-bold text-xs">
+                    <CheckCircle className="w-4 h-4" /> ¡Elaboración Completada!
+                  </div>
+                )}
 
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 text-xs font-bold transition-all cursor-pointer"
-              >
-                Cerrar
-              </button>
+                {/* Secondary action: simulated invoice print */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    alert(`Imprimiendo comanda de cocina para pedido ${order.id}. Ticket enviado a la impresora.`);
+                  }}
+                  className="px-3.5 py-3 rounded-xl bg-white border border-[#D0C2AB] hover:bg-[#FAF6EE] text-[#73624E] text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Imprimir Ticket"
+                >
+                  <Printer className="w-4 h-4" /> Imprimir Comanda
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 text-xs font-bold transition-all cursor-pointer"
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
 
           </motion.div>

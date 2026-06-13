@@ -134,12 +134,6 @@ export default function LogisticsModule({
               Presione la comanda para ver multiplicidades, despachos o comience preparación
             </p>
           </div>
-          <button
-            onClick={onOpenQuickOrder}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00652c] text-white hover:bg-[#005223] transition-colors text-xs font-semibold shadow-xs touch-target-min cursor-pointer shrink-0"
-          >
-            <Plus className="w-4 h-4" /> Nuevo Pedido
-          </button>
         </div>
 
         {todayDeliveries.length === 0 ? (
@@ -154,6 +148,11 @@ export default function LogisticsModule({
               {todayDeliveries.map((order) => {
                 const meta = getStatusMeta(order.status);
                 const isUrgent = order.status === 'Pendiente' && order.deliveryTime < '12:00';
+                const grandTotal = order.total + (order.deliveryFee || 0);
+                const isPartiallyPaid = order.paymentMethod === 'Parcial' && 
+                                        order.amountPaid !== undefined && 
+                                        order.amountPaid > 0 && 
+                                        order.amountPaid < grandTotal;
                 
                 return (
                   <motion.div
@@ -167,55 +166,66 @@ export default function LogisticsModule({
                       if ((e.target as HTMLElement).closest('button')) return;
                       onSelectOrder(order);
                     }}
-                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer hover:shadow-2xs ${
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col xl:flex-row xl:items-center justify-between gap-4 cursor-pointer hover:shadow-2xs ${
                       isUrgent 
                         ? 'bg-[#FFF5F5] border-[#FFC1C1]' 
-                        : 'bg-white border-[#ECE0CC] hover:border-[#D0C2AB]'
+                        : isPartiallyPaid
+                          ? 'bg-[#FFFBEB] border-[#F2C14E] hover:border-[#D4A325]'
+                          : 'bg-white border-[#ECE0CC] hover:border-[#D0C2AB]'
                     }`}
                   >
                     {/* Time & Client Segment */}
                     <div className="flex items-start gap-3.5 min-w-0 flex-1">
                       <div className={`px-3 py-2 rounded-xl text-center font-mono font-bold shrink-0 flex flex-col justify-center min-w-[72px] ${
-                        isUrgent ? 'bg-[#FFD6D6] text-[#A81A1A] border border-[#FFA6A6]' : 'bg-[#FAF6EE] text-[#2C2114]'
+                        isUrgent 
+                          ? 'bg-[#FFD6D6] text-[#A81A1A] border border-[#FFA6A6]' 
+                          : isPartiallyPaid
+                            ? 'bg-[#FFF2CC] text-[#B26A00] border border-[#F5E1A4]'
+                            : 'bg-[#FAF6EE] text-[#2C2114]'
                       }`}>
                         <span className="text-base tracking-tight">{order.deliveryTime}</span>
                         <span className="text-[9px] uppercase tracking-wider text-opacity-80">Hora</span>
                       </div>
 
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-sans font-bold text-[#2C2114] text-base truncate">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-sans font-bold text-[#2C2114] text-base break-words">
                             {order.clientName}
                           </h4>
                           {isUrgent && (
-                            <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider bg-[#FFD6D6] text-[#A81A1A] px-1.5 py-0.5 rounded border border-[#FFA6A6]">
+                            <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider bg-[#FFD6D6] text-[#A81A1A] px-1.5 py-0.5 rounded border border-[#FFA6A6] shrink-0">
                               <AlertTriangle className="w-2.5 h-2.5" /> URGENTE
                             </span>
                           )}
+                          {isPartiallyPaid && (
+                            <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider bg-[#FFF2CC] text-[#B26A00] px-1.5 py-0.5 rounded border border-[#F5E1A4] shrink-0">
+                              💸 ABONADO PARCIAL ({formatCLP(order.amountPaid || 0)} / {formatCLP(grandTotal)})
+                            </span>
+                          )}
                         </div>
-                        <p className="text-sm font-semibold text-[#00652c] mt-0.5 flex items-center gap-1 truncate">
+                        <p className="text-sm font-semibold text-[#00652c] mt-0.5 whitespace-normal break-words">
                           {order.productName}
                         </p>
                         
                         {/* Display Address & Shipment details */}
                         {order.deliveryAddress && (
-                          <div className="flex items-center gap-1.5 text-xs text-[#73624E] mt-1.5 bg-[#FAF6EE] px-2.5 py-1 rounded-lg border border-[#ECE0CC] w-fit">
-                            <MapPin className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                            <span className="truncate max-w-[280px] sm:max-w-[400px]">{order.deliveryAddress}</span>
+                          <div className="flex items-start gap-1.5 text-xs text-[#73624E] mt-1.5 bg-[#FAF6EE] px-2.5 py-1.5 rounded-lg border border-[#ECE0CC] max-w-full">
+                            <MapPin className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+                            <span className="break-words leading-tight">{order.deliveryAddress}</span>
                           </div>
                         )}
 
-                        <div className="flex items-center gap-3 mt-1.5 text-xs text-[#8A755D]">
-                          <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">ID: {order.id}</span>
+                        <div className="flex items-center gap-3 mt-1.5 text-xs text-[#8A755D] flex-wrap">
+                          <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-[10px] shrink-0">ID: {order.id}</span>
                           {order.deliveryFee && order.deliveryFee > 0 ? (
-                            <span className="font-medium text-[#00652c] bg-[#EAFEEA] px-1.5 py-0.5 rounded border border-[#BFF6C3] text-[10px]">
+                            <span className="font-medium text-[#00652c] bg-[#EAFEEA] px-1.5 py-0.5 rounded border border-[#BFF6C3] text-[10px] shrink-0">
                               + {formatCLP(order.deliveryFee)} envío
                             </span>
                           ) : (
-                            <span className="text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">Retiro Local</span>
+                            <span className="text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded text-[10px] shrink-0">Retiro Local</span>
                           )}
                           {order.ingredientsDeducted && (
-                            <span className="text-[#00652c] bg-emerald-50 text-[9px] font-bold px-1.5 py-0.5 rounded border border-emerald-200">
+                            <span className="text-[#00652c] bg-emerald-50 text-[9px] font-bold px-1.5 py-0.5 rounded border border-emerald-200 shrink-0">
                               ✓ Inasum. Desc
                             </span>
                           )}
@@ -224,8 +234,8 @@ export default function LogisticsModule({
                     </div>
 
                     {/* Cost & Interactive Status Segment */}
-                    <div className="flex items-center justify-between md:justify-end gap-4 border-t md:border-t-0 pt-3 md:pt-0 border-[#F4EFE6] shrink-0">
-                      <div className="text-left md:text-right">
+                    <div className="flex items-center justify-between xl:justify-end gap-4 border-t xl:border-t-0 pt-3 xl:pt-0 border-[#F4EFE6] shrink-0 w-full xl:w-auto">
+                      <div className="text-left xl:text-right shrink-0">
                         <span className="text-[10px] text-[#8A755D] block uppercase">Cobro Ficha</span>
                         <span className="font-mono font-bold text-base text-[#2C2114]">
                           {formatCLP(order.total)}
@@ -239,7 +249,7 @@ export default function LogisticsModule({
                           cycleStatus(order);
                         }}
                         title="Toca para cambiar estado"
-                        className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition-all hover:scale-[1.02] cursor-pointer active:scale-95 shadow-xs touch-target-min ${meta.bg}`}
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition-all hover:scale-[1.02] cursor-pointer active:scale-95 shadow-xs touch-target-min shrink-0 ${meta.bg}`}
                       >
                         {meta.icon}
                         <span>{meta.badgeText}</span>
@@ -274,16 +284,32 @@ export default function LogisticsModule({
             <div className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
               {upcomingDeliveries.map((order) => {
                 const meta = getStatusMeta(order.status);
+                const grandTotal = order.total + (order.deliveryFee || 0);
+                const isPartiallyPaid = order.paymentMethod === 'Parcial' && 
+                                        order.amountPaid !== undefined && 
+                                        order.amountPaid > 0 && 
+                                        order.amountPaid < grandTotal;
                 return (
                   <div
                     key={order.id}
                     onClick={() => onSelectOrder(order)}
-                    className="p-3 bg-white hover:bg-[#FAF6EE] border border-[#ECE0CC] rounded-xl flex items-center justify-between gap-3 transition-colors cursor-pointer"
+                    className={`p-3 border rounded-xl flex items-center justify-between gap-3 transition-colors cursor-pointer ${
+                      isPartiallyPaid 
+                        ? 'bg-[#FFFBEB] border-[#F2C14E] hover:border-[#D4A325]' 
+                        : 'bg-white hover:bg-[#FAF6EE] border-[#ECE0CC]'
+                    }`}
                   >
                     <div className="min-w-0">
-                      <span className="text-[10px] font-bold text-[#8A755D] uppercase bg-[#FAF6EE] border border-[#EADEC9] px-2 py-0.5 rounded">
-                        {getFriendlyDayLabel(order.deliveryDate)}
-                      </span>
+                      <div className="flex gap-1.5 items-center flex-wrap">
+                        <span className="text-[10px] font-bold text-[#8A755D] uppercase bg-[#FAF6EE] border border-[#EADEC9] px-2 py-0.5 rounded">
+                          {getFriendlyDayLabel(order.deliveryDate)}
+                        </span>
+                        {isPartiallyPaid && (
+                          <span className="text-[9px] font-bold text-[#B26A00] bg-[#FFF2CC] border border-[#F5E1A4] px-1.5 py-0.5 rounded uppercase font-sans shrink-0">
+                            Abono Parcial ({formatCLP(order.amountPaid || 0)})
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-1.5 mt-2">
                         <span className="text-[#8A755D] text-xs font-mono">{order.deliveryTime}</span>
                         <span className="text-[#8A755D]">•</span>
